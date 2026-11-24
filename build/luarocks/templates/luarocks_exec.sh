@@ -51,6 +51,9 @@ rocks_trees = {
 }
 local_cache = '$CACHE_DIR'
 show_downloads = true
+-- Seal: luarocks.org's manifest no longer loads in LuaJIT (more than 65536 constants); resolve from a
+-- local mirror holding exactly the rock versions shipped in kong 3.8.0 (see .github/seal/luarocks-mirror.txt)
+rocks_servers = { [[/tmp/seal-luarocks-mirror]] }
 gcc_rpath = false -- disable default rpath, add our own
 variables = {
     CC = '$CC',

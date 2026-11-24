@@ -55,6 +55,19 @@ jobs:
                 unzip \
                 zlib1g-dev
 
+    - name: Build the luarocks mirror
+      # luarocks.org's manifest is now too large for LuaJIT to load, so build-time luarocks resolves from
+      # a local mirror (build/luarocks/templates/luarocks_exec.sh) holding exactly the rock versions that
+      # the upstream kong 3.8.0 package ships.
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y luarocks
+        mkdir -p /tmp/seal-luarocks-mirror
+        while read -r name version ext; do
+          curl -fsSL -o "/tmp/seal-luarocks-mirror/$name-$version.$ext" "https://luarocks.org/$name-$version.$ext"
+        done < .github/seal/luarocks-mirror.txt
+        luarocks-admin make_manifest /tmp/seal-luarocks-mirror
+        ls /tmp/seal-luarocks-mirror
+
     - name: Provide the datakit wasm filter
       # Kong/datakit-filter release 0.1.0 is gone (404). The same files (sha256-pinned in
       # build/openresty/wasmx/filters/variables.bzl, so Bazel rejects anything else) ship in the
