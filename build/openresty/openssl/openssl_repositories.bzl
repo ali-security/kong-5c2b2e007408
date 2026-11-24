@@ -18,6 +18,8 @@ def openssl_repositories():
         build_file = "//build/openresty/openssl:BUILD.bazel",
         sha256 = KONG_VAR["OPENSSL_SHA256"],
         strip_prefix = "openssl-" + version,
+        patches = KONG_VAR["OPENSSL_PATCHES"],
+        patch_args = ["-p1"],
         urls = [
             "https://github.com/openssl/openssl/releases/download/openssl-" + version + "/openssl-" + version + ".tar.gz",
             "https://openssl.org/source/old/3.1/openssl-" + version + ".tar.gz",

@@ -61,6 +61,19 @@ def _load_vars(ctx):
 
     content += '"OPENRESTY_PATCHES": [%s],' % (", ".join(patches))
 
+    # Seal: patches for the bundled OpenSSL and libexpat, discovered like the OpenResty ones
+    for key, patch_dir in [
+        ("OPENSSL_PATCHES", "/build/openresty/openssl/patches"),
+        ("LIBEXPAT_PATCHES", "/build/libexpat/patches"),
+    ]:
+        dir_path = ctx.path(workspace_path + patch_dir)
+        found = sorted([
+            '"@kong//:%s"' % str(p).replace(workspace_path, "").lstrip("/")
+            for p in (dir_path.readdir() if dir_path.exists else [])
+            if str(p).endswith(".patch")
+        ])
+        content += '"%s": [%s],' % (key, ", ".join(found))
+
     ngx_wasmx_module_remote = ctx.os.environ.get("NGX_WASM_MODULE_REMOTE", "https://github.com/Kong/ngx_wasm_module.git")
     content += '"NGX_WASM_MODULE_REMOTE": "%s",' % ngx_wasmx_module_remote
 

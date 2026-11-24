@@ -15,6 +15,8 @@ def _kong_genrule_impl(ctx):
 
     # XXX: remove the "env" from KONG_VAR which is a list
     env["OPENRESTY_PATCHES"] = ""
+    env["OPENSSL_PATCHES"] = ""
+    env["LIBEXPAT_PATCHES"] = ""
 
     ctx.actions.run_shell(
         inputs = ctx.files.srcs,

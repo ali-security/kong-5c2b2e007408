@@ -19,6 +19,8 @@ def _nfpm_pkg_impl(ctx):
 
     # XXX: remove the "env" from KONG_VAR which is a list
     env["OPENRESTY_PATCHES"] = ""
+    env["OPENSSL_PATCHES"] = ""
+    env["LIBEXPAT_PATCHES"] = ""
 
     pkg_ext = ctx.attr.packager
 
