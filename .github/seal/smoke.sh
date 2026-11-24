@@ -4,7 +4,7 @@
 # Expects grpcurl, h2spec and /tmp/grpc-target on PATH / disk.
 # usage: smoke.sh <results-dir>
 set -euo pipefail
-OUT=$1
+OUT=$(realpath -m "$1")
 mkdir -p "$OUT"
 SPEC=$(cd "$(dirname "$0")/../.." && pwd)/spec/fixtures/grpc
 
@@ -28,6 +28,9 @@ services:
     paths: ["/targetservice.Bouncer/"]
 EOF
 
+# run Kong from /tmp: its default lua_package_path starts with ./?.lua, and the checkout would shadow
+# the installed package's Lua code
+cd /tmp
 export KONG_DATABASE=off KONG_DECLARATIVE_CONFIG=/tmp/kong.yml
 export KONG_PROXY_LISTEN="0.0.0.0:8000 http2 reuseport backlog=16384, 0.0.0.0:8443 http2 ssl reuseport backlog=16384"
 export KONG_ADMIN_LISTEN="127.0.0.1:8001 reuseport backlog=16384, 127.0.0.1:8444 http2 ssl reuseport backlog=16384"
@@ -52,4 +55,5 @@ tail -3 "$OUT/h2spec.txt"
 grep -E '^[0-9]+ tests, [0-9]+ passed' "$OUT/h2spec.txt" > "$OUT/h2spec-summary.txt" || true
 
 kong stop
+chown -R "${SUDO_UID:-0}:${SUDO_GID:-0}" "$OUT"
 ! grep -q '^FAIL' "$OUT/smoke.txt"

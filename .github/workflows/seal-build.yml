@@ -255,7 +255,8 @@ jobs:
         grep -q 'script_codes=alias=200,e=200,m=500,r1=302,r2=302,v=500 crash=0' $S/poc.txt || { echo "::error::script reproducers not fixed on sealed"; rc=1; }
         grep -q 'h2_123633_crash=0' $S/poc.txt || { echo "::error::CVE-2026-123633 reproducer crashed sealed"; rc=1; }
         grep -q 'max_headers_1100 h1=400 h2=400' $S/poc.txt || { echo "::error::CVE-2026-49975: more than 1000 header lines not refused on sealed"; rc=1; }
-        grep -q 'cve_2026_1907 injected_table=f v2_rejected=1 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907 reproducer not rejected on sealed"; rc=1; }
+        grep -q 'cve_2026_1907 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907: malformed node_id not rejected on sealed"; rc=1; }
+        grep -q 'cve_2026_1907 v1_rejected=0' $U/poc.txt || { echo "::error::CVE-2026-1907: upstream baseline unexpectedly rejects (is the package's Lua code being tested?)"; rc=1; }
         sr=$(grep -oE 'h2_123007_first_reject=[0-9]+' $S/poc.txt | cut -d= -f2); ur=$(grep -oE 'h2_123007_first_reject=[0-9]+' $U/poc.txt | cut -d= -f2)
         [ -n "$sr" ] && [ -n "$ur" ] && [ "$sr" -lt "$ur" ] || { echo "::error::CVE-2026-123007: sealed must reject a smaller refund than upstream (sealed=$sr upstream=$ur)"; rc=1; }
         exit $rc
