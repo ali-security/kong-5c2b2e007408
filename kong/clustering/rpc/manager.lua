@@ -14,6 +14,7 @@ local constants = require("kong.constants")
 local table_isempty = require("table.isempty")
 local pl_tablex = require("pl.tablex")
 local cjson = require("cjson.safe")
+local is_valid_uuid = require("kong.tools.uuid").is_valid_uuid
 
 
 local ngx_var = ngx.var
@@ -212,6 +213,12 @@ function _M:handle_websocket()
 
   if not node_id then
     ngx_log(ngx_ERR, "[rpc] client did not provide node ID")
+    return ngx_exit(ngx.HTTP_CLOSE)
+  end
+
+  -- validate node_id is a valid UUID to prevent injection
+  if not is_valid_uuid(node_id) then
+    ngx_log(ngx_ERR, "[rpc] invalid node_id format, must be a valid UUID")
     return ngx_exit(ngx.HTTP_CLOSE)
   end
 
