@@ -34,7 +34,12 @@ jobs:
         grep -v '^#' .requirements >> $GITHUB_ENV
 
     - name: Setup Bazel
-      uses: bazelbuild/setup-bazelisk@95c9bf48d0c570bb3e28e57108f3450cd67c1a44 # v2.0.0
+      # bazelbuild/setup-bazelisk@v2 (Kong's pin) uses the retired GitHub cache API; install bazelisk directly.
+      # bazelisk still resolves the Bazel version from .bazelversion.
+      run: |
+        curl -fsSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-linux-amd64
+        chmod +x /usr/local/bin/bazel
+        bazel version
 
     - name: Install Deb Dependencies
       run: |
