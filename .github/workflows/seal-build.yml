@@ -141,6 +141,16 @@ jobs:
       fail-fast: false
       matrix:
         flavor: [sealed, upstream]
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: kong
+          POSTGRES_PASSWORD: kong
+          POSTGRES_DB: kong
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       SEAL_RESULTS: ${{ github.workspace }}/results/${{ matrix.flavor }}/poc.txt
       NGINX_TESTS_LIB: /tmp/nginx-tests/lib
@@ -170,7 +180,7 @@ jobs:
         sha256sum pkg/kong.amd64.deb
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./pkg/kong.amd64.deb \
-          libio-socket-ssl-perl libnet-ssleay-perl libcryptx-perl
+          libio-socket-ssl-perl libnet-ssleay-perl libcryptx-perl postgresql-client
         dpkg -s kong | grep -E '^(Package|Version):'
         (cd spec/fixtures/grpc/target && go build -o /tmp/grpc-target .)
         go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.1
@@ -184,6 +194,9 @@ jobs:
 
     - name: Kong smoke test (HTTP/1.1, h2, h2c, gRPC, h2spec)
       run: sudo -E env "PATH=$PATH" bash .github/seal/smoke.sh results/${{ matrix.flavor }}
+
+    - name: CVE-2026-1907 reproducer (hybrid control plane on Postgres)
+      run: sudo -E env "PATH=$PATH" bash .github/seal/cve-2026-1907.sh results/${{ matrix.flavor }}
 
     - name: nginx-tests
       run: bash .github/seal/nginx-tests.sh results/${{ matrix.flavor }}
@@ -228,7 +241,9 @@ jobs:
           echo '```'
         } | tee -a "$GITHUB_STEP_SUMMARY"
 
-        if diff $U/file-list.txt $S/file-list.txt; then echo "file list (paths, modes, owners): identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::file list differs from upstream"; rc=1; fi
+        # the CVE-2026-1907 backport adds one Lua module (kong/tools/hostname.lua); nothing else may differ
+        fdiff=$(diff $U/file-list.txt $S/file-list.txt | grep '^[<>]' || true)
+        if [ "$fdiff" = "> -rw-r--r-- root/root ./usr/local/share/lua/5.1/kong/tools/hostname.lua" ]; then echo "file list (paths, modes, owners): identical except the added kong/tools/hostname.lua" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::file list differs from upstream: $fdiff"; rc=1; fi
         if diff $U/control.txt $S/control.txt; then echo "control fields except Version/Installed-Size/Provides: identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::control fields differ from upstream"; rc=1; fi
         # a sealed DEB keeps its upstream Provides and adds the versioned self-provide of the origin version
         if [ "$(cat $S/provides.txt)" = "$(cat $U/provides.txt), kong (= 3.8.0)" ]; then echo "Provides: $(cat $S/provides.txt) (upstream + kong (= 3.8.0))" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::unexpected Provides: $(cat $S/provides.txt)"; rc=1; fi
@@ -239,6 +254,7 @@ jobs:
         grep -q '^FAIL' $S/smoke.txt && { echo "::error::smoke test failed on sealed"; rc=1; }
         grep -q 'script_codes=alias=200,e=200,m=500,r1=302,r2=302,v=500 crash=0' $S/poc.txt || { echo "::error::script reproducers not fixed on sealed"; rc=1; }
         grep -q 'h2_123633_crash=0' $S/poc.txt || { echo "::error::CVE-2026-123633 reproducer crashed sealed"; rc=1; }
+        grep -q 'cve_2026_1907 injected_table=f v2_rejected=1 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907 reproducer not rejected on sealed"; rc=1; }
         sr=$(grep -oE 'h2_123007_first_reject=[0-9]+' $S/poc.txt | cut -d= -f2); ur=$(grep -oE 'h2_123007_first_reject=[0-9]+' $U/poc.txt | cut -d= -f2)
         [ -n "$sr" ] && [ -n "$ur" ] && [ "$sr" -lt "$ur" ] || { echo "::error::CVE-2026-123007: sealed must reject a smaller refund than upstream (sealed=$sr upstream=$ur)"; rc=1; }
         exit $rc
