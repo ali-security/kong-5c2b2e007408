@@ -86,6 +86,12 @@ jobs:
         umask 0022  # match the upstream package's directory modes (0755)
         bazel build --config release //build:kong --verbose_failures --distdir=/tmp/distdir
 
+    - name: Normalize staged directory modes
+      # Depending on action order, Bazel leaves some staged directories group-writable (0775), and nfpm
+      # copies those modes into the package. The upstream package has no group/other-writable directory.
+      run: |
+        find "$(readlink -f bazel-bin)/build/kong-dev" -type d -perm /022 -print -exec chmod go-w {} +
+
     - name: Package Kong - deb
       run: |
         umask 0022
