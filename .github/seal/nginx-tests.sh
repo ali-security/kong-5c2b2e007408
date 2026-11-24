@@ -3,7 +3,7 @@
 # Kong nginx binary, and record the failing test files.
 # usage: nginx-tests.sh <results-dir>
 set -u
-OUT=$1
+OUT=$(realpath -m "$1")
 NGINX_TESTS_REF=25320bfddec3fd53383ed6623aa7d1d2e791bebf
 mkdir -p "$OUT"
 if [ ! -d /tmp/nginx-tests ]; then

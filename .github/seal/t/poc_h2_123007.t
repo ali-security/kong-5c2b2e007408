@@ -32,7 +32,7 @@ $t->run();
 
 my $MAX = 2**31 - 1;
 my (@res, $first); my $rej = 0;
-for my $kb (map { $_ * 32 } 4 .. 32) {
+for my $kb (map { $_ * 16 } 1 .. 48) {
 	my $WS = $kb * 1024;
 	my $sock = IO::Socket::INET->new(Proto => 'tcp') or die;
 	setsockopt($sock, SOL_SOCKET, SO_RCVBUF, 4096);
