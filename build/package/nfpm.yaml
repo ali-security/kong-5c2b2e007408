@@ -1,7 +1,7 @@
 name: "${KONG_NAME}"
 arch: ${ARCH}
 platform: "linux"
-version: "${KONG_VERSION}"
+version: "${KONG_VERSION}+sp1"
 section: "default"
 priority: "extra"
 provides:

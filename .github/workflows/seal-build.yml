@@ -1,0 +1,200 @@
+# Seal: build the sealed kong DEB (ubuntu 22.04 amd64) with Kong's own Bazel release build and test it
+# side by side with the upstream kong_3.8.0_amd64.deb.
+name: Seal - build and test kong DEB
+
+on:
+  push:
+    branches: ["seal/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    name: Build & Package - ubuntu-22.04
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:22.04
+      options: --privileged
+    steps:
+    - name: Early Deb in Container Setup
+      run: |
+        apt-get update
+        apt-get install -y git tar gzip file sudo
+
+    - name: Checkout Kong source code
+      uses: actions/checkout@v4
+
+    - name: Swap git with https
+      run: git config --global url."https://github".insteadOf git://github
+
+    - name: Set .requirements into environment variables
+      run: |
+        grep -v '^#' .requirements >> $GITHUB_ENV
+
+    - name: Setup Bazel
+      uses: bazelbuild/setup-bazelisk@95c9bf48d0c570bb3e28e57108f3450cd67c1a44 # v2.0.0
+
+    - name: Install Deb Dependencies
+      run: |
+        sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                automake \
+                build-essential \
+                curl \
+                file \
+                libyaml-dev \
+                m4 \
+                perl \
+                pkg-config \
+                unzip \
+                zlib1g-dev
+
+    - name: Build Kong dependencies
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        bazel build --config release //build:kong --verbose_failures
+
+    - name: Package Kong - deb
+      run: |
+        bazel build --config release :kong_deb --verbose_failures
+        ls -la bazel-bin/pkg
+        dpkg-deb -I bazel-bin/pkg/kong.amd64.deb
+        test "$(dpkg-deb -f bazel-bin/pkg/kong.amd64.deb Version)" = "3.8.0+sp1"
+
+    - name: Bazel Debug Outputs
+      if: failure()
+      run: |
+        cat bazel-out/_tmp/actions/stderr-* || true
+        tail -n500 bazel-out/**/*/CMake.log || true
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ubuntu-22.04-packages
+        path: bazel-bin/pkg
+        retention-days: 30
+
+  verify-manifest:
+    name: Verify Manifest - ubuntu-22.04-amd64
+    needs: build-deb
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: ubuntu-22.04-packages
+        path: bazel-bin/pkg
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Verify
+      run: |
+        cd scripts/explain_manifest
+        pip install -r requirements.txt
+        pkg=$(ls ../../bazel-bin/pkg/kong* | head -n1)
+        python ./main.py -f filelist.txt -p $pkg -o test.txt -s ubuntu-22.04-amd64
+
+  test:
+    name: Test - ${{ matrix.flavor }}
+    needs: build-deb
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [sealed, upstream]
+    env:
+      SEAL_RESULTS: ${{ github.workspace }}/results/${{ matrix.flavor }}/poc.txt
+      NGINX_TESTS_LIB: /tmp/nginx-tests/lib
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Get sealed package
+      if: matrix.flavor == 'sealed'
+      uses: actions/download-artifact@v4
+      with:
+        name: ubuntu-22.04-packages
+        path: pkg
+
+    - name: Get upstream package
+      if: matrix.flavor == 'upstream'
+      run: |
+        mkdir -p pkg
+        curl -fsSL -o pkg/kong.amd64.deb https://packages.konghq.com/public/gateway-38/deb/ubuntu/pool/jammy/main/k/ko/kong_3.8.0/kong_3.8.0_amd64.deb
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: false
+
+    - name: Install package and test tools
+      run: |
+        sha256sum pkg/kong.amd64.deb
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./pkg/kong.amd64.deb \
+          libio-socket-ssl-perl libnet-ssleay-perl libcryptx-perl
+        dpkg -s kong | grep -E '^(Package|Version):'
+        (cd spec/fixtures/grpc/target && go build -o /tmp/grpc-target .)
+        go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.1
+        sudo cp "$(go env GOPATH)/bin/grpcurl" /usr/local/bin/
+        curl -fsSL https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin h2spec
+        mkdir -p results/${{ matrix.flavor }}
+        dpkg -s kong | grep -E '^Version:' > results/${{ matrix.flavor }}/package-version.txt
+
+    - name: Kong smoke test (HTTP/1.1, h2, h2c, gRPC, h2spec)
+      run: sudo -E env "PATH=$PATH" bash .github/seal/smoke.sh results/${{ matrix.flavor }}
+
+    - name: nginx-tests
+      run: bash .github/seal/nginx-tests.sh results/${{ matrix.flavor }}
+
+    - name: CVE reproducers
+      env:
+        TEST_NGINX_BINARY: /usr/local/openresty/nginx/sbin/nginx
+      run: |
+        prove -v .github/seal/t/*.t 2>&1 | tee results/${{ matrix.flavor }}/poc.log || true
+        cat "$SEAL_RESULTS"
+
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: results-${{ matrix.flavor }}
+        path: results/${{ matrix.flavor }}
+
+  compare:
+    name: Compare sealed vs upstream
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: results-*
+        path: results
+    - name: Compare
+      run: |
+        set -u
+        S=results/results-sealed; U=results/results-upstream; rc=0
+        {
+          echo "## sealed vs upstream"
+          echo '```'
+          echo "package:     sealed $(cat $S/package-version.txt) | upstream $(cat $U/package-version.txt)"
+          echo "nginx-tests: sealed $(cat $S/nginx-tests-totals.txt) | upstream $(cat $U/nginx-tests-totals.txt)"
+          echo "  sealed failing files:   $(tr '\n' ' ' < $S/nginx-tests-failures.txt)"
+          echo "  upstream failing files: $(tr '\n' ' ' < $U/nginx-tests-failures.txt)"
+          echo "h2spec:      sealed $(cat $S/h2spec-summary.txt) | upstream $(cat $U/h2spec-summary.txt)"
+          echo "smoke (sealed):"; sed 's/^/  /' $S/smoke.txt
+          echo "reproducers sealed:";   sed 's/^/  /' $S/poc.txt
+          echo "reproducers upstream:"; sed 's/^/  /' $U/poc.txt
+          echo '```'
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+
+        new=$(comm -23 $S/nginx-tests-failures.txt $U/nginx-tests-failures.txt)
+        [ -z "$new" ] || { echo "::error::nginx-tests failing only on sealed: $new"; rc=1; }
+        sp=$(grep -oE '[0-9]+ passed' $S/h2spec-summary.txt | grep -oE '[0-9]+'); up=$(grep -oE '[0-9]+ passed' $U/h2spec-summary.txt | grep -oE '[0-9]+')
+        [ "${sp:-0}" -ge "${up:-0}" ] || { echo "::error::h2spec regressed ($sp < $up)"; rc=1; }
+        grep -q '^FAIL' $S/smoke.txt && { echo "::error::smoke test failed on sealed"; rc=1; }
+        grep -q 'script_codes=alias=200,e=200,m=500,r1=302,r2=302,v=500 crash=0' $S/poc.txt || { echo "::error::script reproducers not fixed on sealed"; rc=1; }
+        grep -q 'h2_123633_crash=0' $S/poc.txt || { echo "::error::CVE-2026-123633 reproducer crashed sealed"; rc=1; }
+        sr=$(grep -oE 'h2_123007_first_reject=[0-9]+' $S/poc.txt | cut -d= -f2); ur=$(grep -oE 'h2_123007_first_reject=[0-9]+' $U/poc.txt | cut -d= -f2)
+        [ -n "$sr" ] && [ -n "$ur" ] && [ "$sr" -lt "$ur" ] || { echo "::error::CVE-2026-123007: sealed must reject a smaller refund than upstream (sealed=$sr upstream=$ur)"; rc=1; }
+        exit $rc
