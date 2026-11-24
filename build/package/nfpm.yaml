@@ -7,6 +7,7 @@ priority: "extra"
 provides:
 - kong
 - luarocks
+- kong (= 3.8.0)
 maintainer: "Kong Inc. <support@konghq.com>"
 description: |
   Kong is a distributed gateway for APIs and Microservices, focused on high performance and reliability.

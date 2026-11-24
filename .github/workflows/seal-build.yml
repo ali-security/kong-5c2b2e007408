@@ -173,7 +173,8 @@ jobs:
         mkdir -p results/${{ matrix.flavor }}
         dpkg -s kong | grep -E '^Version:' > results/${{ matrix.flavor }}/package-version.txt
         dpkg-deb -c pkg/kong.amd64.deb | awk '{print $1, $2, $6}' | sort -k3 > results/${{ matrix.flavor }}/file-list.txt
-        dpkg-deb -f pkg/kong.amd64.deb | grep -vE '^(Version|Installed-Size):' > results/${{ matrix.flavor }}/control.txt
+        dpkg-deb -f pkg/kong.amd64.deb | grep -vE '^(Version|Installed-Size|Provides):' > results/${{ matrix.flavor }}/control.txt
+        dpkg-deb -f pkg/kong.amd64.deb Provides > results/${{ matrix.flavor }}/provides.txt
 
     - name: Kong smoke test (HTTP/1.1, h2, h2c, gRPC, h2spec)
       run: sudo -E env "PATH=$PATH" bash .github/seal/smoke.sh results/${{ matrix.flavor }}
@@ -222,7 +223,9 @@ jobs:
         } | tee -a "$GITHUB_STEP_SUMMARY"
 
         if diff $U/file-list.txt $S/file-list.txt; then echo "file list (paths, modes, owners): identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::file list differs from upstream"; rc=1; fi
-        if diff $U/control.txt $S/control.txt; then echo "control fields except Version/Installed-Size: identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::control fields differ from upstream"; rc=1; fi
+        if diff $U/control.txt $S/control.txt; then echo "control fields except Version/Installed-Size/Provides: identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::control fields differ from upstream"; rc=1; fi
+        # a sealed DEB keeps its upstream Provides and adds the versioned self-provide of the origin version
+        if [ "$(cat $S/provides.txt)" = "$(cat $U/provides.txt), kong (= 3.8.0)" ]; then echo "Provides: $(cat $S/provides.txt) (upstream + kong (= 3.8.0))" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::unexpected Provides: $(cat $S/provides.txt)"; rc=1; fi
         new=$(comm -23 $S/nginx-tests-failures.txt $U/nginx-tests-failures.txt)
         [ -z "$new" ] || { echo "::error::nginx-tests failing only on sealed: $new"; rc=1; }
         sp=$(grep -oE '[0-9]+ passed' $S/h2spec-summary.txt | grep -oE '[0-9]+'); up=$(grep -oE '[0-9]+ passed' $U/h2spec-summary.txt | grep -oE '[0-9]+')
