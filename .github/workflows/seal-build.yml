@@ -198,6 +198,9 @@ jobs:
     - name: CVE-2026-1907 reproducer (hybrid control plane on Postgres)
       run: sudo -E env "PATH=$PATH" bash .github/seal/cve-2026-1907.sh results/${{ matrix.flavor }}
 
+    - name: libexpat reproducers (through the package's lxp module)
+      run: bash .github/seal/expat-cves.sh results/${{ matrix.flavor }}
+
     - name: nginx-tests
       run: bash .github/seal/nginx-tests.sh results/${{ matrix.flavor }}
 
@@ -254,6 +257,9 @@ jobs:
         grep -q '^FAIL' $S/smoke.txt && { echo "::error::smoke test failed on sealed"; rc=1; }
         grep -q 'script_codes=alias=200,e=200,m=500,r1=302,r2=302,v=500 crash=0' $S/poc.txt || { echo "::error::script reproducers not fixed on sealed"; rc=1; }
         grep -q 'h2_123633_crash=0' $S/poc.txt || { echo "::error::CVE-2026-123633 reproducer crashed sealed"; rc=1; }
+        grep -q 'expat_8176 parsed rc=0' $S/poc.txt || { echo "::error::CVE-2024-8176: deep entity nesting not handled on sealed"; rc=1; }
+        grep -qE 'expat_115506 rejected: .* delivered=0$' $S/poc.txt || { echo "::error::CVE-2026-115506: amplification not stopped before delivery on sealed"; rc=1; }
+        grep -q 'expat_93990 rejected' $S/poc.txt || { echo "::error::CVE-2026-93990: unpaired surrogate accepted on sealed"; rc=1; }
         grep -q 'max_headers_1100 h1=400 h2=400' $S/poc.txt || { echo "::error::CVE-2026-49975: more than 1000 header lines not refused on sealed"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907: malformed node_id not rejected on sealed"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=0' $U/poc.txt || { echo "::error::CVE-2026-1907: upstream baseline unexpectedly rejects (is the package's Lua code being tested?)"; rc=1; }
