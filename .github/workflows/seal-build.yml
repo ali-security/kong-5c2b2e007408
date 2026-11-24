@@ -201,6 +201,9 @@ jobs:
     - name: libexpat reproducers (through the package's lxp module)
       run: bash .github/seal/expat-cves.sh results/${{ matrix.flavor }}
 
+    - name: OpenSSL reproducers (stock openssl CLI on the package's libcrypto/libssl)
+      run: bash .github/seal/openssl-cves.sh results/${{ matrix.flavor }}
+
     - name: nginx-tests
       run: bash .github/seal/nginx-tests.sh results/${{ matrix.flavor }}
 
@@ -260,6 +263,11 @@ jobs:
         grep -q 'expat_8176 parsed rc=0' $S/poc.txt || { echo "::error::CVE-2024-8176: deep entity nesting not handled on sealed"; rc=1; }
         grep -qE 'expat_115506 rejected: .* delivered=0$' $S/poc.txt || { echo "::error::CVE-2026-115506: amplification not stopped before delivery on sealed"; rc=1; }
         grep -q 'expat_93990 rejected' $S/poc.txt || { echo "::error::CVE-2026-93990: unpaired surrogate accepted on sealed"; rc=1; }
+        grep -q '/usr/local/kong/lib/libcrypto.so.3' $S/openssl-ldd.txt || { echo "::error::OpenSSL reproducers did not use the package's libcrypto"; rc=1; }
+        for c in 2025_15467 2026_28388 2026_28389_dh 2026_28389_ecdh 2026_28390 2026_45447; do
+          r=$(grep -oP "openssl_${c} rc=\K[0-9]+" $S/poc.txt)
+          { [ -n "$r" ] && [ "$r" -gt 0 ] && [ "$r" -lt 124 ]; } || { echo "::error::OpenSSL CVE-${c%%_dh*}: sealed did not reject cleanly (rc=$r)"; rc=1; }
+        done
         grep -q 'max_headers_1100 h1=400 h2=400' $S/poc.txt || { echo "::error::CVE-2026-49975: more than 1000 header lines not refused on sealed"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907: malformed node_id not rejected on sealed"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=0' $U/poc.txt || { echo "::error::CVE-2026-1907: upstream baseline unexpectedly rejects (is the package's Lua code being tested?)"; rc=1; }
