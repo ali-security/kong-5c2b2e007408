@@ -224,6 +224,9 @@ jobs:
     - name: LuaJIT reproducers (package luajit binary and nginx's embedded LuaJIT via resty)
       run: sudo -E env "PATH=$PATH" bash .github/seal/luajit-cves.sh results/${{ matrix.flavor }}
 
+    - name: Kong PDK tests (t/, Test::Nginx, as upstream's pdk-tests job)
+      run: bash .github/seal/pdk-tests.sh results/${{ matrix.flavor }}
+
     - name: nginx-tests
       run: bash .github/seal/nginx-tests.sh results/${{ matrix.flavor }}
 
@@ -261,6 +264,9 @@ jobs:
           echo "  sealed failing files:   $(tr '\n' ' ' < $S/nginx-tests-failures.txt)"
           echo "  upstream failing files: $(tr '\n' ' ' < $U/nginx-tests-failures.txt)"
           echo "h2spec:      sealed $(cat $S/h2spec-summary.txt) | upstream $(cat $U/h2spec-summary.txt)"
+          echo "PDK t/:      sealed $(cat $S/pdk-tests-totals.txt) | upstream $(cat $U/pdk-tests-totals.txt)"
+          echo "  sealed failing files:   $(tr '\n' ' ' < $S/pdk-tests-failures.txt)"
+          echo "  upstream failing files: $(tr '\n' ' ' < $U/pdk-tests-failures.txt)"
           echo "smoke (sealed):"; sed 's/^/  /' $S/smoke.txt
           echo "reproducers sealed:";   sed 's/^/  /' $S/poc.txt
           echo "reproducers upstream:"; sed 's/^/  /' $U/poc.txt
@@ -273,6 +279,9 @@ jobs:
         if diff $U/control.txt $S/control.txt; then echo "control fields except Version/Installed-Size/Provides: identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::control fields differ from upstream"; rc=1; fi
         # a sealed DEB keeps its upstream Provides and adds the versioned self-provide of the origin version
         if [ "$(cat $S/provides.txt)" = "$(cat $U/provides.txt), kong (= 3.8.0)" ]; then echo "Provides: $(cat $S/provides.txt) (upstream + kong (= 3.8.0))" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::unexpected Provides: $(cat $S/provides.txt)"; rc=1; fi
+        pnew=$(comm -23 $S/pdk-tests-failures.txt $U/pdk-tests-failures.txt)
+        [ -z "$pnew" ] || { echo "::error::PDK tests failing only on sealed: $pnew"; rc=1; }
+        grep -q '^Files=' $S/pdk-tests-totals.txt || { echo "::error::PDK tests did not run on sealed"; rc=1; }
         new=$(comm -23 $S/nginx-tests-failures.txt $U/nginx-tests-failures.txt)
         [ -z "$new" ] || { echo "::error::nginx-tests failing only on sealed: $new"; rc=1; }
         sp=$(grep -oE '[0-9]+ passed' $S/h2spec-summary.txt | grep -oE '[0-9]+'); up=$(grep -oE '[0-9]+ passed' $U/h2spec-summary.txt | grep -oE '[0-9]+')
