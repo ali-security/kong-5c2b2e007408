@@ -61,10 +61,11 @@ def _load_vars(ctx):
 
     content += '"OPENRESTY_PATCHES": [%s],' % (", ".join(patches))
 
-    # Seal: patches for the bundled OpenSSL and libexpat, discovered like the OpenResty ones
+    # Seal: patches for the bundled OpenSSL, libexpat and PCRE2, discovered like the OpenResty ones
     for key, patch_dir in [
         ("OPENSSL_PATCHES", "/build/openresty/openssl/patches"),
         ("LIBEXPAT_PATCHES", "/build/libexpat/patches"),
+        ("PCRE_PATCHES", "/build/openresty/pcre/patches"),
     ]:
         dir_path = ctx.path(workspace_path + patch_dir)
         found = sorted([

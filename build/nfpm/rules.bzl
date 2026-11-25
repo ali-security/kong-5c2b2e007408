@@ -21,6 +21,7 @@ def _nfpm_pkg_impl(ctx):
     env["OPENRESTY_PATCHES"] = ""
     env["OPENSSL_PATCHES"] = ""
     env["LIBEXPAT_PATCHES"] = ""
+    env["PCRE_PATCHES"] = ""
 
     pkg_ext = ctx.attr.packager
 

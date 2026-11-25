@@ -17,6 +17,7 @@ def _kong_genrule_impl(ctx):
     env["OPENRESTY_PATCHES"] = ""
     env["OPENSSL_PATCHES"] = ""
     env["LIBEXPAT_PATCHES"] = ""
+    env["PCRE_PATCHES"] = ""
 
     ctx.actions.run_shell(
         inputs = ctx.files.srcs,
