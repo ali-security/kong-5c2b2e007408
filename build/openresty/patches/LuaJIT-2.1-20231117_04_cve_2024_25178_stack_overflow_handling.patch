@@ -11,10 +11,27 @@ index 682d641..3aa799a 100644
      if (frame_islua(nextframe)) {
        ins = frame_pc(nextframe);
 diff --git a/bundle/LuaJIT-2.1-20231117.1/src/lj_err.c b/bundle/LuaJIT-2.1-20231117.1/src/lj_err.c
-index 16f6330..413cc6b 100644
+index 16f6330..3adb8c6 100644
 --- a/bundle/LuaJIT-2.1-20231117.1/src/lj_err.c
 +++ b/bundle/LuaJIT-2.1-20231117.1/src/lj_err.c
-@@ -822,7 +822,14 @@ LJ_NOINLINE void lj_err_mem(lua_State *L)
+@@ -813,16 +813,31 @@ LJ_NOINLINE GCstr *lj_err_str(lua_State *L, ErrMsg em)
+   return lj_str_newz(L, err2msg(em));
+ }
+ 
++LJ_NORET LJ_NOINLINE static void lj_err_err(lua_State *L)
++{
++  setstrV(L, L->top++, lj_err_str(L, LJ_ERR_ERRERR));
++  lj_err_throw(L, LUA_ERRERR);
++}
++
+ /* Out-of-memory error. */
+ LJ_NOINLINE void lj_err_mem(lua_State *L)
+ {
++  if (L->status == LUA_ERRERR)
++    lj_err_err(L);
+   if (L->status == LUA_ERRERR+1)  /* Don't touch the stack during lua_open. */
+     lj_vm_unwind_c(L->cframe, LUA_ERRMEM);
+   if (LJ_HASJIT) {
      TValue *base = tvref(G(L)->jit_base);
      if (base) L->base = base;
    }
@@ -30,7 +47,7 @@ index 16f6330..413cc6b 100644
    setstrV(L, L->top++, lj_err_str(L, LJ_ERR_ERRMEM));
    lj_err_throw(L, LUA_ERRMEM);
  }
-@@ -883,9 +890,11 @@ LJ_NOINLINE void LJ_FASTCALL lj_err_run(lua_State *L)
+@@ -883,9 +898,11 @@ LJ_NOINLINE void LJ_FASTCALL lj_err_run(lua_State *L)
  {
    ptrdiff_t ef = (LJ_HASJIT && tvref(G(L)->jit_base)) ? 0 : finderrfunc(L);
    if (ef) {
@@ -44,13 +61,15 @@ index 16f6330..413cc6b 100644
      if (!tvisfunc(errfunc) || L->status == LUA_ERRERR) {
        setstrV(L, top-1, lj_err_str(L, LJ_ERR_ERRERR));
        lj_err_throw(L, LUA_ERRERR);
-@@ -900,7 +909,15 @@ LJ_NOINLINE void LJ_FASTCALL lj_err_run(lua_State *L)
+@@ -900,7 +917,17 @@ LJ_NOINLINE void LJ_FASTCALL lj_err_run(lua_State *L)
    lj_err_throw(L, LUA_ERRRUN);
  }
  
 +/* Stack overflow error. */
 +void LJ_FASTCALL lj_err_stkov(lua_State *L)
 +{
++  if (L->status == LUA_ERRERR)
++    lj_err_err(L);
 +  lj_debug_addloc(L, err2msg(LJ_ERR_STKOV), L->base-1, NULL);
 +  lj_err_run(L);
 +}
@@ -73,10 +92,43 @@ index 8768fef..67686cb 100644
  #if LJ_HASJIT
  LJ_FUNCA_NORET void LJ_FASTCALL lj_err_trace(lua_State *L, int errcode);
 diff --git a/bundle/LuaJIT-2.1-20231117.1/src/lj_state.c b/bundle/LuaJIT-2.1-20231117.1/src/lj_state.c
-index 7d71678..1b793da 100644
+index 7d71678..c91a003 100644
 --- a/bundle/LuaJIT-2.1-20231117.1/src/lj_state.c
 +++ b/bundle/LuaJIT-2.1-20231117.1/src/lj_state.c
-@@ -102,27 +102,49 @@ void lj_state_shrinkstack(lua_State *L, MSize used)
+@@ -37,8 +37,9 @@
+ #define LJ_STACK_MAX	LUAI_MAXSTACK	/* Max. stack size. */
+ #define LJ_STACK_START	(2*LJ_STACK_MIN)	/* Starting stack size. */
+ #define LJ_STACK_MAXEX	(LJ_STACK_MAX + 1 + LJ_STACK_EXTRA)
++#define LJ_STACK_ERREX	(1 + 2*LJ_STACK_MIN)	/* Extra for error handling. */
+ 
+-/* Explanation of LJ_STACK_EXTRA:
++/* Explanation for LJ_STACK_EXTRA:
+ **
+ ** Calls to metamethods store their arguments beyond the current top
+ ** without checking for the stack limit. This avoids stack resizes which
+@@ -51,6 +52,11 @@
+ ** slots above top, but then mobj is always a function. So we can get by
+ ** with 5 extra slots.
+ ** LJ_FR2: We need 2 more slots for the frame PC and the continuation PC.
++**
++** Explanation for LJ_STACK_ERREX:
++**
++** The 1 is space for the error message, and 2 * LJ_STACK_MIN is for
++** the lj_state_checkstack() call in lj_err_run().
+ */
+ 
+ /* Resize stack slots and adjust pointers in state. */
+@@ -83,7 +89,8 @@ static void resizestack(lua_State *L, MSize n)
+ /* Relimit stack after error, in case the limit was overdrawn. */
+ void lj_state_relimitstack(lua_State *L)
+ {
+-  if (L->stacksize > LJ_STACK_MAXEX && L->top-tvref(L->stack) < LJ_STACK_MAX-1)
++  if (L->stacksize > LJ_STACK_MAXEX &&
++      L->top-tvref(L->stack) < LJ_STACK_MAX - 1 - LJ_STACK_ERREX)
+     resizestack(L, LJ_STACK_MAX);
+ }
+ 
+@@ -102,27 +109,47 @@ void lj_state_shrinkstack(lua_State *L, MSize used)
  /* Try to grow stack. */
  void LJ_FASTCALL lj_state_growstack(lua_State *L, MSize need)
  {
@@ -111,11 +163,9 @@ index 7d71678..1b793da 100644
 +      /* An error handler might want to inspect the stack overflow error, but
 +      ** will need some stack space to run in. We give it a stack size beyond
 +      ** the normal limit in order to do so, then rely on lj_state_relimitstack
-+      ** calls during unwinding to bring us back to a convential stack size.
-+      ** The + 1 is space for the error message, and 2 * LUA_MINSTACK is for
-+      ** the lj_state_checkstack() call in lj_err_run().
++      ** calls during unwinding to bring us back to a conventional stack size.
 +      */
-+      resizestack(L, LJ_STACK_MAX + 1 + 2 * LUA_MINSTACK);
++      resizestack(L, LJ_STACK_MAX + LJ_STACK_ERREX);
 +      lj_err_stkov(L);  /* May invoke an error handler. */
 +    } else {
 +      /* If we're here, then the stack overflow error handler is requesting
@@ -144,3 +194,11 @@ index 7d71678..1b793da 100644
  }
  
  void LJ_FASTCALL lj_state_growstack1(lua_State *L)
+@@ -173,6 +200,7 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
+   lj_meta_init(L);
+   lj_lex_init(L);
+   fixstring(lj_err_str(L, LJ_ERR_ERRMEM));  /* Preallocate memory error msg. */
++  fixstring(lj_err_str(L, LJ_ERR_ERRERR));  /* Preallocate err in err msg. */
+   g->gc.threshold = 4*g->gc.total;
+   lj_trace_initstate(g);
+   lj_err_verify();
