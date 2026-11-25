@@ -191,7 +191,7 @@ jobs:
         sha256sum pkg/kong.amd64.deb
         sudo apt-get update
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ./pkg/kong.amd64.deb \
-          libio-socket-ssl-perl libnet-ssleay-perl libcryptx-perl postgresql-client
+          libio-socket-ssl-perl libnet-ssleay-perl libcryptx-perl postgresql-client luarocks
         dpkg -s kong | grep -E '^(Package|Version):'
         (cd spec/fixtures/grpc/target && go build -o /tmp/grpc-target .)
         go install github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.1
@@ -223,6 +223,10 @@ jobs:
 
     - name: LuaJIT reproducers (package luajit binary and nginx's embedded LuaJIT via resty)
       run: sudo -E env "PATH=$PATH" bash .github/seal/luajit-cves.sh results/${{ matrix.flavor }}
+
+    - name: Kong busted specs for CVE-2026-1907 (sealed Lua on the package's resty/nginx)
+      if: matrix.flavor == 'sealed'
+      run: sudo -E env "PATH=$PATH" bash .github/seal/busted-1907.sh results/${{ matrix.flavor }}
 
     - name: Kong PDK tests (t/, Test::Nginx, as upstream's pdk-tests job)
       run: bash .github/seal/pdk-tests.sh results/${{ matrix.flavor }}
@@ -279,6 +283,9 @@ jobs:
         if diff $U/control.txt $S/control.txt; then echo "control fields except Version/Installed-Size/Provides: identical" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::control fields differ from upstream"; rc=1; fi
         # a sealed DEB keeps its upstream Provides and adds the versioned self-provide of the origin version
         if [ "$(cat $S/provides.txt)" = "$(cat $U/provides.txt), kong (= 3.8.0)" ]; then echo "Provides: $(cat $S/provides.txt) (upstream + kong (= 3.8.0))" | tee -a "$GITHUB_STEP_SUMMARY"; else echo "::error::unexpected Provides: $(cat $S/provides.txt)"; rc=1; fi
+        for t in hostname utils sql_injection_v1; do
+          grep -qE "busted_1907_$t rc=0 passed=[1-9][0-9]* failed=0" $S/poc.txt || { echo "::error::CVE-2026-1907 busted spec ($t) did not pass on sealed"; rc=1; }
+        done
         pnew=$(comm -23 $S/pdk-tests-failures.txt $U/pdk-tests-failures.txt)
         [ -z "$pnew" ] || { echo "::error::PDK tests failing only on sealed: $pnew"; rc=1; }
         grep -q '^Files=' $S/pdk-tests-totals.txt || { echo "::error::PDK tests did not run on sealed"; rc=1; }
