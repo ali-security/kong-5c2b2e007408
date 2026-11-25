@@ -289,6 +289,7 @@ jobs:
         grep -q 'wasm_smoke started=1 errors=0 vendored=0 registry=1' $U/poc.txt || { echo "::error::unexpected upstream wasm smoke result"; rc=1; }
         grep -q 'max_headers_1100 h1=400 h2=400' $S/poc.txt || { echo "::error::CVE-2026-49975: more than 1000 header lines not refused on sealed"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907: malformed node_id not rejected on sealed"; rc=1; }
+        grep -q 'cve_2026_1907_valid_dp synced=1 registered=1' $S/poc.txt || { echo "::error::CVE-2026-1907: a valid data plane no longer registers with / syncs from the sealed control plane"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=0' $U/poc.txt || { echo "::error::CVE-2026-1907: upstream baseline unexpectedly rejects (is the package's Lua code being tested?)"; rc=1; }
         for c in 25176 25177 25178; do
           grep -q "luajit_$c luajit=ok/rc=0 resty=ok/rc=0" $S/poc.txt || { echo "::error::CVE-2024-$c: LuaJIT reproducer not fixed on sealed"; rc=1; }
