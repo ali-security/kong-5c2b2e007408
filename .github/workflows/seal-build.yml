@@ -218,6 +218,9 @@ jobs:
     - name: OpenSSL reproducers (stock openssl CLI on the package's libcrypto/libssl)
       run: bash .github/seal/openssl-cves.sh results/${{ matrix.flavor }}
 
+    - name: PCRE2 reproducers (nginx's statically linked PCRE2 via ngx.re under resty)
+      run: sudo -E env "PATH=$PATH" bash .github/seal/pcre2-cves.sh results/${{ matrix.flavor }}
+
     - name: LuaJIT reproducers (package luajit binary and nginx's embedded LuaJIT via resty)
       run: sudo -E env "PATH=$PATH" bash .github/seal/luajit-cves.sh results/${{ matrix.flavor }}
 
@@ -291,6 +294,9 @@ jobs:
         grep -q 'cve_2026_1907 v1_rejected=1' $S/poc.txt || { echo "::error::CVE-2026-1907: malformed node_id not rejected on sealed"; rc=1; }
         grep -q 'cve_2026_1907_valid_dp synced=1 registered=1' $S/poc.txt || { echo "::error::CVE-2026-1907: a valid data plane no longer registers with / syncs from the sealed control plane"; rc=1; }
         grep -q 'cve_2026_1907 v1_rejected=0' $U/poc.txt || { echo "::error::CVE-2026-1907: upstream baseline unexpectedly rejects (is the package's Lua code being tested?)"; rc=1; }
+        grep -q 'pcre2_86145 result=ok/rc=0' $S/poc.txt || { echo "::error::CVE-2026-86145: PCRE2 DFA workspace reproducer not fixed on sealed"; rc=1; }
+        grep -q 'pcre2_86145 result=ok/rc=0' $U/poc.txt && { echo "::error::CVE-2026-86145: upstream baseline unexpectedly passes (is the package's PCRE2 being tested?)"; rc=1; }
+        grep -q 'pcre2_103111 result=ok/rc=0' $S/poc.txt || { echo "::error::CVE-2026-103111: JIT stack reproducer did not stop at the stack limit on sealed"; rc=1; }
         for c in 25176 25177 25178; do
           grep -q "luajit_$c luajit=ok/rc=0 resty=ok/rc=0" $S/poc.txt || { echo "::error::CVE-2024-$c: LuaJIT reproducer not fixed on sealed"; rc=1; }
           grep -q "luajit_$c luajit=ok/rc=0 resty=ok/rc=0" $U/poc.txt && { echo "::error::CVE-2024-$c: upstream baseline unexpectedly passes (is the package's LuaJIT being tested?)"; rc=1; }
